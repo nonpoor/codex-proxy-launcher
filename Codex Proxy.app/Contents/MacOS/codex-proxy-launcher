@@ -1,0 +1,91 @@
+#!/bin/zsh
+set -euo pipefail
+
+APP_BUNDLE="/Applications/ChatGPT.app"
+APP_BIN="$APP_BUNDLE/Contents/MacOS/ChatGPT"
+FLCLASH_APP="/Applications/FlClash.app"
+HTTP_PROXY_URL="${HTTP_PROXY_URL:-http://127.0.0.1:7890}"
+NO_PROXY_HOSTS="${NO_PROXY_HOSTS:-localhost,127.0.0.1,api.github.com}"
+LOG_DIR="/Users/nonpoor/daily/codex-proxy-launcher/logs"
+LOG_FILE="$LOG_DIR/codex-proxy.log"
+
+mkdir -p "$LOG_DIR"
+
+notify() {
+  /usr/bin/osascript -e "display dialog \"$1\" buttons {\"OK\"} default button \"OK\" with title \"Codex Proxy\""
+}
+
+find_app_pid() {
+  # Process existence is the source of truth; LaunchServices state can lag behind app shutdown.
+  /bin/ps -axo pid=,command= 2>/dev/null \
+    | /usr/bin/awk -v app_bin="$APP_BIN" '$2 == app_bin && !pid { pid = $1 } END { if (pid) print pid }' \
+    || true
+}
+
+proxy_ready() {
+  /usr/bin/nc -z 127.0.0.1 7890 >/dev/null 2>&1
+}
+
+wait_for_proxy() {
+  for _ in {1..30}; do
+    proxy_ready && return 0
+    /bin/sleep 0.5
+  done
+  return 1
+}
+
+if [[ ! -x "$APP_BIN" ]]; then
+  notify "找不到 ChatGPT 主程序：$APP_BIN"
+  exit 1
+fi
+
+while ! proxy_ready; do
+  choice="$(/usr/bin/osascript -e 'button returned of (display dialog "本地代理 127.0.0.1:7890 没有启动。请先打开 FlClash，等代理端口可用后再启动 ChatGPT。" buttons {"取消", "重试", "打开 FlClash"} default button "打开 FlClash" cancel button "取消" with title "Codex Proxy")' 2>/dev/null || true)"
+  case "$choice" in
+    "打开 FlClash")
+      if [[ -d "$FLCLASH_APP" ]]; then
+        /usr/bin/open -a "$FLCLASH_APP"
+      else
+        notify "找不到 FlClash：$FLCLASH_APP"
+        exit 1
+      fi
+      wait_for_proxy || true
+      ;;
+    "重试")
+      wait_for_proxy || true
+      ;;
+    *)
+      exit 0
+      ;;
+  esac
+done
+
+APP_PID="$(find_app_pid)"
+if [[ -n "$APP_PID" ]]; then
+  notify "ChatGPT 已经在运行（PID：$APP_PID）。为了避免中断当前会话，启动器不会关闭现有 ChatGPT。请先手动退出 ChatGPT，再双击 Codex Proxy.app 启动。"
+  exit 0
+fi
+
+# Current Codex resolves wss:// destinations through HTTPS_PROXY. WS_PROXY and
+# WSS_PROXY are not read by its WebSocket dialer. Clear inherited fallback
+# variables so the unified app does not split traffic between HTTP and SOCKS.
+unset WS_PROXY WSS_PROXY ALL_PROXY ws_proxy wss_proxy all_proxy
+
+export HTTP_PROXY="$HTTP_PROXY_URL"
+export HTTPS_PROXY="$HTTP_PROXY_URL"
+export http_proxy="$HTTP_PROXY_URL"
+export https_proxy="$HTTP_PROXY_URL"
+export NO_PROXY="$NO_PROXY_HOSTS"
+export no_proxy="$NO_PROXY"
+
+{
+  echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] launching ChatGPT (Chat + Work + Codex)"
+  echo "APP_BUNDLE=$APP_BUNDLE"
+  echo "APP_BIN=$APP_BIN"
+  echo "HTTP_PROXY=$HTTP_PROXY"
+  echo "HTTPS_PROXY=$HTTPS_PROXY"
+  echo "NO_PROXY=$NO_PROXY"
+  echo "ARGS=--disable-quic"
+} >> "$LOG_FILE"
+
+/usr/bin/nohup "$APP_BIN" --disable-quic >> "$LOG_FILE" 2>&1 &
