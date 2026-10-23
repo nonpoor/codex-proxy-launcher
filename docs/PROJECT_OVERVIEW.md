@@ -19,6 +19,7 @@
 | 终端复用 | 提供可 source 的 `proxy_auto`、`proxy_off`、`codex_auto` | Zsh 函数、子 shell | 原本只存在于个人 shell 配置里的命令无法直接分享 |
 | Windows | 桌面双击入口、系统代理与监听发现、临时环境注入、诊断与 CLI | PowerShell 5.1/7、.NET、注册表只读查询、Appx 清单 | macOS 的工具链和 App Bundle 无法直接运行在 Windows |
 | 开源交付 | 完整使用说明、许可证、隐私约束、跨平台测试 | Markdown、GitHub Actions、测试替身 | 接收者不知道安装条件、运行入口和成功边界 |
+| 用户安装 | 分平台 Release 压缩包、Windows 当前用户安装器与快捷方式、应用路径记忆 | Python 标准库、PowerShell、WScript.Shell | 接收者需要自己配置路径、长期保留下载目录和寻找脚本入口 |
 
 ## WebSocket 与 HTTP 代理是什么关系
 

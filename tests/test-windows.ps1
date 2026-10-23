@@ -92,7 +92,7 @@ $testDir = Join-Path ([IO.Path]::GetTempPath()) ('codex-proxy-test-' + [Guid]::N
 [void][IO.Directory]::CreateDirectory($testDir)
 $names = @(Get-ProxyEnvironmentNames) + @('GIT_CONFIG_COUNT', 'GIT_CONFIG_PARAMETERS',
     'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_1', 'GIT_CONFIG_VALUE_1',
-    'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM')
+    'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'CODEX_PROXY_SETTINGS_FILE')
 $saved = New-Object 'System.Collections.Generic.Dictionary[string,string]' ([StringComparer]::Ordinal)
 foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 try {
@@ -136,6 +136,9 @@ try {
     Set-Content -LiteralPath $fakeApp -Value ''
     Assert-Equal $fakeApp (Get-DesktopAppPath $fakeApp) 'explicit path with spaces'
     Assert-Throws { Get-DesktopAppPath (Join-Path $testDir 'missing.exe') } 'bad app path fails'
+    $env:CODEX_PROXY_SETTINGS_FILE = Join-Path $testDir 'config/settings.json'
+    Save-DesktopAppPath $fakeApp
+    Assert-Equal $fakeApp (Get-DesktopAppPath -AppPath '') 'remember application chosen by user'
     $fakeCodex = Join-Path $testDir 'codex.exe'
     Set-Content -LiteralPath $fakeCodex -Value ''
     Assert-Equal $fakeCodex (Get-CodexCommand $fakeCodex) 'explicit CLI path'
@@ -147,6 +150,35 @@ try {
     [IO.File]::WriteAllText($logFile, ('x' * 1MB))
     Write-LauncherEvent $logDir 'next launch'
     Assert-True (Test-Path "$logFile.1") 'rotate log'
+
+    . "$PSScriptRoot/../windows/InstallSupport.ps1"
+    $installDir = Join-Path $testDir 'installed with spaces'
+    $sourceRoot = [IO.Path]::GetFullPath("$PSScriptRoot/..")
+    $installed = Install-ProxyFiles $sourceRoot $installDir
+    Assert-True (Test-Path (Join-Path $installed 'windows/Start-CodexProxy.cmd')) 'install desktop entry'
+    Assert-True (Test-Path (Join-Path $installed '.codex-proxy-launcher.install')) 'managed installation marker'
+    Assert-True (-not (Test-Path (Join-Path $installed 'logs'))) 'do not copy source logs'
+    Set-Content (Join-Path $installed 'keep-user-file.txt') 'keep'
+    [void](Install-ProxyFiles $sourceRoot $installDir)
+    Assert-Equal 'keep' (Get-Content (Join-Path $installed 'keep-user-file.txt')) 'update preserves user files'
+    $unmanaged = Join-Path $testDir 'unmanaged'
+    [void][IO.Directory]::CreateDirectory($unmanaged)
+    Set-Content (Join-Path $unmanaged 'keep.txt') 'keep'
+    Assert-Throws { Install-ProxyFiles $sourceRoot $unmanaged } 'refuse unmanaged nonempty directory'
+    Assert-Equal 'keep' (Get-Content (Join-Path $unmanaged 'keep.txt')) 'unmanaged files unchanged'
+    Assert-Throws { Install-ProxyFiles $unmanaged (Join-Path $testDir 'incomplete') } 'incomplete download rejected'
+    if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+        $desktop = Join-Path $testDir 'fake desktop'
+        $startMenu = Join-Path $testDir 'fake start menu'
+        New-ProxyShortcuts $installed $desktop $startMenu
+        Assert-True (Test-Path (Join-Path $desktop 'Codex Proxy.lnk')) 'create desktop shortcut'
+        Assert-True (Test-Path (Join-Path $startMenu 'Codex Network Diagnosis.lnk')) 'create diagnosis shortcut'
+        $com = New-Object -ComObject WScript.Shell
+        $link = $com.CreateShortcut((Join-Path $desktop 'Codex Proxy.lnk'))
+        Assert-Equal (Join-Path $installed 'windows/Start-CodexProxy.cmd') $link.TargetPath 'shortcut target'
+        New-ProxyShortcuts $installed $desktop $startMenu
+        Assert-True (Test-Path (Join-Path $desktop 'Codex Proxy.lnk')) 'shortcut reinstall is safe'
+    }
 
     # Run entry scripts in a separate PowerShell process with a fake route and
     # child executable, so orchestration, JSON parsing and exit codes are tested.

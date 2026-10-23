@@ -2,13 +2,19 @@
 param(
     [string]$AppPath = $env:CODEX_PROXY_APP_BIN,
     [string]$ProxyUrl = $env:HTTP_PROXY_URL,
-    [switch]$FirstRoute
+    [switch]$FirstRoute,
+    [switch]$NonInteractive
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\ProxyRoute.ps1"
 
 try {
-    $app = Get-DesktopAppPath $AppPath
+    try {
+        $app = Get-DesktopAppPath $AppPath
+    } catch {
+        if ($AppPath -or $NonInteractive) { throw }
+        $app = Select-DesktopAppPath
+    }
     $running = @(Get-Process -Name ([IO.Path]::GetFileNameWithoutExtension($app)) -ErrorAction SilentlyContinue)
     if ($running.Count -gt 0) {
         Write-Host 'The desktop app is already running. Exit it manually before applying a new route.'

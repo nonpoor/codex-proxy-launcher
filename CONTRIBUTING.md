@@ -28,6 +28,8 @@ git diff --check
 
 ## 维护约定
 
+发布前运行 `python3 tests/test-release.py`，确认分平台 ZIP 的文件、执行权限、校验值，以及从 Windows ZIP 解压后安装的流程。构建命令为 `python3 scripts/build-release.py 1.0.0`，输出在忽略提交的 `dist/` 目录；替换版本号后再上传到对应 GitHub Release。
+
 保持 macOS 与 Windows 的路线优先级一致。不要添加固定代理端口，除非它只出现在测试或明确标为示例的命令里。显式覆盖失败时应报错，不能偷偷换另一条路线。
 
 新增代理客户端支持时，进程名和监听端口只用于发现候选项，使用前仍需验证。启动预检与 WebSocket 握手是两层证据，文案不能混为一谈。

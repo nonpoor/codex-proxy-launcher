@@ -86,6 +86,14 @@ Windows 诊断使用原生 JSON 解析，要求两个网络检查都为 `ok`。�
 
 macOS 的 `lib/codex-runtime.zsh` 按显式覆盖、新版应用内 CLI、旧版 CLI、PATH 的顺序查找。Windows 的 `Get-CodexCommand` 按显式覆盖、应用内候选位置和 PATH 查找。定位器只查路径，不安装程序、不升级应用。
 
+### 用户安装与发布包
+
+`Install-Windows.cmd` 调用 `windows/Install-CodexProxy.ps1`，将白名单文件复制到用户本地应用目录，并通过 WScript.Shell 创建桌面与开始菜单快捷方式。`InstallSupport.ps1` 负责文件安装与快捷方式；对非空且没有项目标记的目标目录，安装器拒绝覆盖。重新安装只更新项目文件，保留日志和额外文件。
+
+桌面入口自动查找失败时，Windows 文件选择框让用户选择应用，路径保存到独立的用户本地设置目录。显式传入的路径始终优先，旧路径失效后重新尝试自动发现。配置文件不包含代理凭据。
+
+`scripts/build-release.py` 用明确的文件清单生成分平台 ZIP 和 `SHA256SUMS.txt`。发布包不包含源码测试、`.git`、本机日志、旧图标草稿或个人配置。Windows 批处理统一转换为 CRLF，macOS 启动文件保留执行权限。
+
 ## 日志与敏感信息
 
 - 当前日志为 `logs/launcher.log`，大小达到 1 MiB 时轮转，保留三个历史文件。

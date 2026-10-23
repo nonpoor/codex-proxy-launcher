@@ -209,11 +209,55 @@ function Invoke-WithProxyRoute($Route, [scriptblock]$Action) {
     }
 }
 
+function Get-ProxySettingsPath {
+    if ($env:CODEX_PROXY_SETTINGS_FILE) { return $env:CODEX_PROXY_SETTINGS_FILE }
+    if (-not $env:LOCALAPPDATA) { return '' }
+    return Join-Path $env:LOCALAPPDATA 'CodexProxyLauncherConfig\settings.json'
+}
+
+function Save-DesktopAppPath([string]$AppPath) {
+    if (-not (Test-Path -LiteralPath $AppPath -PathType Leaf) -or
+        [IO.Path]::GetExtension($AppPath) -ne '.exe') { throw 'An existing desktop .exe is required.' }
+    $settingsPath = Get-ProxySettingsPath
+    if (-not $settingsPath) { throw 'A user-local settings directory is required.' }
+    [void][IO.Directory]::CreateDirectory((Split-Path $settingsPath -Parent))
+    @{ AppPath = (Get-Item -LiteralPath $AppPath).FullName } | ConvertTo-Json |
+        Set-Content -LiteralPath $settingsPath -Encoding UTF8
+}
+
+function Select-DesktopAppPath {
+    Add-Type -AssemblyName System.Windows.Forms
+    $dialog = New-Object System.Windows.Forms.OpenFileDialog
+    try {
+        $dialog.Title = 'Select the Codex or ChatGPT desktop executable'
+        $dialog.Filter = 'Desktop application (*.exe)|*.exe'
+        $dialog.CheckFileExists = $true
+        if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
+            throw 'Application selection cancelled.'
+        }
+        Save-DesktopAppPath $dialog.FileName
+        return $dialog.FileName
+    } finally {
+        $dialog.Dispose()
+    }
+}
+
 function Get-DesktopAppPath([string]$AppPath = $env:CODEX_PROXY_APP_BIN) {
     if ($AppPath) {
         if (-not (Test-Path -LiteralPath $AppPath -PathType Leaf) -or
             [IO.Path]::GetExtension($AppPath) -ne '.exe') { throw 'AppPath must point to an existing desktop .exe.' }
         return (Get-Item -LiteralPath $AppPath).FullName
+    }
+    $settingsPath = Get-ProxySettingsPath
+    if ($settingsPath -and (Test-Path -LiteralPath $settingsPath -PathType Leaf)) {
+        try {
+            $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+            if ($settings.PSObject.Properties['AppPath'] -and
+                (Test-Path -LiteralPath $settings.AppPath -PathType Leaf) -and
+                [IO.Path]::GetExtension($settings.AppPath) -eq '.exe') {
+                return (Get-Item -LiteralPath $settings.AppPath).FullName
+            }
+        } catch { }
     }
     $candidates = @()
     foreach ($base in @($env:LOCALAPPDATA, $env:ProgramFiles, ${env:ProgramFiles(x86)})) {

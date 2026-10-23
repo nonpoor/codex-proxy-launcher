@@ -4,6 +4,25 @@
 
 提供 macOS App、Windows 双击入口和命令行诊断。需要自行安装桌面应用与代理客户端，并使用自己的账号登录。
 
+## 下载可直接使用的版本
+
+打开 [最新 Release](https://github.com/nonpoor/codex-proxy-launcher/releases/latest)，在 Assets 中选择对应系统的 ZIP：
+
+| 系统 | 下载文件 | 解压后的操作 |
+| --- | --- | --- |
+| Windows | 文件名以 `-windows.zip` 结尾 | 双击 `Install-Windows.cmd`，以后从桌面的 `Codex Proxy` 快捷方式启动 |
+| macOS | 文件名以 `-macos.zip` 结尾 | 保留整个目录，双击 `Codex Proxy.app`，也可把这个入口拖到 Dock |
+
+Windows 安装不需要管理员权限，会把启动器复制到 `%LOCALAPPDATA%\Programs\CodexProxyLauncher`，并在桌面和开始菜单创建启动、诊断两个快捷方式。应用位置无法自动识别时，会出现文件选择框；选择一次 `Codex.exe` 或 `ChatGPT.exe` 后即可记住。安装后不依赖下载时的解压目录。
+
+想从终端安装，也可以解压后在项目根目录运行：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\windows\Install-CodexProxy.ps1
+```
+
+只想临时使用时，可以跳过安装，直接运行 `windows/Start-CodexProxy.cmd`。以下章节说明各入口的配置和排障方法。
+
 ## 先选对应入口
 
 | 你要做什么 | macOS | Windows |
@@ -18,13 +37,13 @@
 
 需要 Windows 10/11、Windows PowerShell 5.1 或 PowerShell 7，以及已安装的 Codex / ChatGPT 桌面应用。使用原生 Windows 入口，WSL 内的代理环境不在本项目覆盖范围内。
 
-1. 在 GitHub 页面选择 **Code > Download ZIP**，解压到普通用户目录，比如 `C:\Tools\codex-proxy-launcher`。
+1. 从 [Release](https://github.com/nonpoor/codex-proxy-launcher/releases/latest) 下载 Windows ZIP，解压后双击 `Install-Windows.cmd`。
 2. 打开 FlClash 或其他代理客户端，确认节点可用。系统代理、TUN 或可用的本地 HTTP 代理端口均可。
 3. 手动退出正在运行的 Codex / ChatGPT，包括托盘里的后台进程。
-4. 双击 `windows/Start-CodexProxy.cmd`。多条路线可用时，在窗口中输入编号。
-5. 双击 `windows/Diagnose-CodexNetwork.cmd`，检查结果。HTTP 和 WebSocket 都为 `ok` 才算全部通过。
+4. 双击桌面的 `Codex Proxy`。多条路线可用时，在窗口中输入编号。
+5. 双击桌面的 `Codex Network Diagnosis`，检查结果。HTTP 和 WebSocket 都为 `ok` 才算全部通过。
 
-启动器会查找常见安装位置，以及当前用户安装的 OpenAI Store 包中的应用清单。安装位置无法自动识别时，在项目目录打开 PowerShell，手动指定真实的可执行文件：
+启动器会查找常见安装位置，以及当前用户安装的 OpenAI Store 包中的应用清单。无法识别时会打开文件选择框，也可以在解压目录用参数手动指定真实的可执行文件：
 
 ```powershell
 .\windows\Start-CodexProxy.ps1 -AppPath 'C:\实际安装目录\Codex.exe'
@@ -55,7 +74,7 @@ windows\Start-CodexProxy.cmd -AppPath "C:\实际安装目录\Codex.exe"
 
 需要已安装的 ChatGPT 桌面应用，默认位置是 `/Applications/ChatGPT.app`。启动器本身声明最低 macOS 12.0，实际运行条件还取决于你安装的桌面应用。启动使用系统自带的 `zsh`、`curl`、`scutil`、`lsof` 和 `osascript`，诊断额外需要 `jq`。
 
-1. 下载或克隆整个仓库，解压到准备长期保留的位置。
+1. 从 [Release](https://github.com/nonpoor/codex-proxy-launcher/releases/latest) 下载 macOS ZIP，解压到准备长期保留的位置。
 2. 打开代理客户端，确认节点可用。
 3. 手动退出 ChatGPT，再双击 `Codex Proxy.app`。
 4. 多条路线可用时，选择本次使用的路线。没有可用路线时，可以选择打开 Shadowrocket、FlClash 或重新检测。
@@ -148,6 +167,8 @@ Windows 当前支持 `http://` 代理 URL，通过 CONNECT 承载 HTTPS/WSS；ma
 ## 日志与反馈
 
 精简启动日志保存在项目的 `logs/` 下，单个日志达到 1 MiB 后轮转，最多保留三个历史文件。日志只记录启动事件、PID 和脱敏路线，不捕获应用完整输出。macOS 另外保存一次启动状态，供再次点击时核对 PID。
+
+Windows 安装版的日志在安装目录的 `logs/`，手动选择的应用路径保存在 `%LOCALAPPDATA%\CodexProxyLauncherConfig\settings.json`。这份设置只含本机应用路径，不含代理账号或登录信息。重新安装会保留设置；需要清除已记住的路径时，可以自行删除该文件。
 
 报告问题时，请提供系统版本、桌面应用/CLI 版本、代理客户端及模式、两个网络检查的状态和错误摘要。提交前自行检查输出，隐藏用户名、私人路径、代理账号密码和其他个人信息。不要上传 `auth.json`、完整 doctor 报告、会话内容、订阅链接或 `logs/`。
 

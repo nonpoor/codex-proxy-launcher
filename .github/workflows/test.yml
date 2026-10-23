@@ -18,6 +18,8 @@ jobs:
       - name: PowerShell portable behavior
         shell: pwsh
         run: ./tests/test-windows.ps1
+      - name: Release package and extracted installer
+        run: python3 tests/test-release.py
   windows:
     runs-on: windows-latest
     steps:
@@ -28,3 +30,6 @@ jobs:
       - name: PowerShell 7
         shell: pwsh
         run: ./tests/test-windows.ps1
+      - name: Release package and extracted installer on Windows PowerShell
+        shell: powershell
+        run: python tests/test-release.py --powershell powershell.exe
