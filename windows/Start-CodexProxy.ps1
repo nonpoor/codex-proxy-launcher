@@ -24,6 +24,7 @@ try {
     if (-not $launched) { throw 'The desktop process did not start.' }
     Write-LauncherEvent (Join-Path $PSScriptRoot '..\logs') "spawned pid=$($launched.Id) route=$summary"
     Write-Host "Desktop process started (PID $($launched.Id)). Run Diagnose-CodexNetwork.cmd to check WebSocket."
+    exit 0
 } catch {
     # Do not print exception URLs, credentials, or native application output.
     Write-Host 'Launch failed. Check the app path, proxy route and whether this package permits direct executable launch.' -ForegroundColor Red

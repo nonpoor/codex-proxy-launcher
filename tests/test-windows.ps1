@@ -194,3 +194,6 @@ exit 1
     Remove-Item -LiteralPath $testDir -Recurse -Force
 }
 Write-Host "Windows proxy tests: OK ($script:Assertions assertions)"
+# GitHub's -Command wrapper propagates LASTEXITCODE from the deliberate final
+# failure case. All assertions above must finish before this success is emitted.
+exit 0

@@ -35,6 +35,7 @@ try {
         exit 1
     }
     Write-Host 'HTTP and Responses WebSocket checks passed at this time.'
+    exit 0
 } catch {
     Write-Host 'Diagnosis failed. Check CodexPath, proxy availability and support for codex doctor --json.' -ForegroundColor Red
     exit 1
