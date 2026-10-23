@@ -41,6 +41,7 @@ def main():
                 else:
                     entry = zf.getinfo(folder + '/Codex Proxy.app/Contents/MacOS/codex-proxy-launcher')
                     assert (entry.external_attr >> 16) & stat.S_IXUSR
+                    assert b'\r\n' not in zf.read(entry)
                     assert {'lib/proxy-route.zsh', 'lib/codex-runtime.zsh',
                             'diagnose-codex-network.command'} <= names
             expected = hashlib.sha256(archive.read_bytes()).hexdigest()

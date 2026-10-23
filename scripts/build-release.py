@@ -16,11 +16,14 @@ def build(version: str, output: Path) -> list[Path]:
     output.mkdir(parents=True, exist_ok=True)
     common = [ROOT / name for name in ("README.md", "README.txt", "LICENSE", "NOTICE.md")]
     common += sorted((ROOT / "docs").glob("*.md"))
-    windows = common + [ROOT / "Install-Windows.cmd"] + sorted((ROOT / "windows").glob("*.ps1"))
-    windows += sorted((ROOT / "windows").glob("*.cmd"))
+    windows = common + [ROOT / "Install-Windows.cmd"] + [ROOT / 'windows' / name for name in (
+        'ProxyRoute.ps1', 'Start-CodexProxy.ps1', 'Start-CodexProxy.cmd',
+        'Diagnose-CodexNetwork.ps1', 'Diagnose-CodexNetwork.cmd', 'Start-CodexCLI.ps1',
+        'InstallSupport.ps1', 'Install-CodexProxy.ps1')]
     macos = common + [ROOT / "diagnose-codex-network.command", ROOT / "shell/proxy.zsh"]
-    macos += sorted((ROOT / "lib").glob("*.zsh"))
-    macos += sorted(p for p in (ROOT / "Codex Proxy.app").rglob("*") if p.is_file())
+    macos += [ROOT / 'lib' / name for name in ('proxy-route.zsh', 'codex-runtime.zsh')]
+    macos += [ROOT / 'Codex Proxy.app/Contents' / name for name in (
+        'Info.plist', 'MacOS/codex-proxy-launcher', 'Resources/CodexProxy.icns')]
     archives = []
     for platform, files in (("windows", windows), ("macos", macos)):
         folder = f"codex-proxy-launcher-{version}-{platform}"
@@ -33,12 +36,18 @@ def build(version: str, output: Path) -> list[Path]:
                 if any(p in relative.parts for p in ("logs", ".git", "assets", "__pycache__")):
                     raise ValueError(f"Forbidden release path: {relative}")
                 data = path.read_bytes()
+                if path.suffix in {'.md', '.txt', '.ps1', '.zsh', '.command', '.plist'} or path.name == 'LICENSE':
+                    data = data.replace(b'\r\n', b'\n')
                 if path.suffix == ".cmd":
                     data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
                 info = zipfile.ZipInfo(f"{folder}/{relative.as_posix()}", (2026, 1, 1, 0, 0, 0))
                 info.create_system = 3
                 info.compress_type = zipfile.ZIP_DEFLATED
-                mode = 0o755 if path.stat().st_mode & stat.S_IXUSR else 0o644
+                # Windows checkouts do not retain POSIX executable bits. Derive
+                # launch permissions from the release contract on every host.
+                executable = path.suffix in {'.zsh', '.command'} or relative.as_posix() == \
+                    'Codex Proxy.app/Contents/MacOS/codex-proxy-launcher'
+                mode = 0o755 if executable else 0o644
                 info.external_attr = (stat.S_IFREG | mode) << 16
                 zf.writestr(info, data)
             zf.writestr(f"{folder}/VERSION", version + "\n")
