@@ -66,6 +66,12 @@ def main():
         subprocess.run([sys.executable, str(checkout / 'scripts/build-release.py'), '1.0.0',
                         '--output', str(simulated)], check=True, capture_output=True)
         for archive in output.glob('*.zip'):
+            with zipfile.ZipFile(archive) as expected, zipfile.ZipFile(simulated / archive.name) as actual:
+                for entry in expected.infolist():
+                    other = actual.getinfo(entry.filename)
+                    assert expected.read(entry) == actual.read(other), f'Content differs: {entry.filename}'
+                    assert entry.date_time == other.date_time, f'Timestamp differs: {entry.filename}'
+                    assert entry.external_attr == other.external_attr, f'Mode differs: {entry.filename}'
             assert archive.read_bytes() == (simulated / archive.name).read_bytes()
         if not args.powershell:
             raise RuntimeError('PowerShell is required to smoke-test the extracted installer')

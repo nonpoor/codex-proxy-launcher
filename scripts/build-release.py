@@ -51,7 +51,11 @@ def build(version: str, output: Path) -> list[Path]:
                 mode = 0o755 if executable else 0o644
                 info.external_attr = (stat.S_IFREG | mode) << 16
                 zf.writestr(info, data)
-            zf.writestr(f"{folder}/VERSION", version + "\n")
+            version_info = zipfile.ZipInfo(f"{folder}/VERSION", (2026, 1, 1, 0, 0, 0))
+            version_info.create_system = 3
+            version_info.compress_type = zipfile.ZIP_DEFLATED
+            version_info.external_attr = (stat.S_IFREG | 0o644) << 16
+            zf.writestr(version_info, version + "\n")
         with zipfile.ZipFile(archive) as zf:
             if zf.testzip() is not None:
                 raise ValueError(f"Corrupt archive: {archive}")
