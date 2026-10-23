@@ -20,6 +20,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='codex-release-') as temporary:
         temp = Path(temporary)
         output = temp / 'packages'
+        checkout = temp / 'windows-style-checkout'
         subprocess.run([sys.executable, str(ROOT / 'scripts/build-release.py'), '1.0.0',
                         '--output', str(output)], check=True, capture_output=True)
         for platform in ('windows', 'macos'):
@@ -30,6 +31,17 @@ def main():
                 names = {name.removeprefix(folder + '/') for name in zf.namelist()}
                 assert {'README.md', 'README.txt', 'LICENSE', 'NOTICE.md', 'VERSION'} <= names
                 assert all(not set(Path(name).parts) & {'.git', 'logs', 'assets', 'tests'} for name in names)
+                for entry in zf.infolist():
+                    relative = Path(entry.filename).relative_to(folder)
+                    if relative.name == 'VERSION':
+                        continue
+                    destination = checkout / relative
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    data = zf.read(entry)
+                    if destination.suffix != '.icns':
+                        data = data.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
+                    destination.write_bytes(data)
+                    destination.chmod(0o644)
                 if platform == 'windows':
                     assert {'Install-Windows.cmd', 'windows/Install-CodexProxy.ps1',
                             'windows/InstallSupport.ps1', 'windows/ProxyRoute.ps1',
@@ -46,6 +58,15 @@ def main():
                             'diagnose-codex-network.command'} <= names
             expected = hashlib.sha256(archive.read_bytes()).hexdigest()
             assert f'{expected}  {archive.name}' in (output / 'SHA256SUMS.txt').read_text()
+        # Simulate Windows CRLF checkout and missing POSIX execute bits on every
+        # platform, including machines where native checkout has LF/755 files.
+        (checkout / 'scripts').mkdir()
+        shutil.copyfile(ROOT / 'scripts/build-release.py', checkout / 'scripts/build-release.py')
+        simulated = temp / 'simulated-packages'
+        subprocess.run([sys.executable, str(checkout / 'scripts/build-release.py'), '1.0.0',
+                        '--output', str(simulated)], check=True, capture_output=True)
+        for archive in output.glob('*.zip'):
+            assert archive.read_bytes() == (simulated / archive.name).read_bytes()
         if not args.powershell:
             raise RuntimeError('PowerShell is required to smoke-test the extracted installer')
         source = temp / 'extracted/codex-proxy-launcher-1.0.0-windows'

@@ -36,7 +36,8 @@ def build(version: str, output: Path) -> list[Path]:
                 if any(p in relative.parts for p in ("logs", ".git", "assets", "__pycache__")):
                     raise ValueError(f"Forbidden release path: {relative}")
                 data = path.read_bytes()
-                if path.suffix in {'.md', '.txt', '.ps1', '.zsh', '.command', '.plist'} or path.name == 'LICENSE':
+                if path.suffix in {'.md', '.txt', '.ps1', '.zsh', '.command', '.plist'} or \
+                    path.name in {'LICENSE', 'codex-proxy-launcher'}:
                     data = data.replace(b'\r\n', b'\n')
                 if path.suffix == ".cmd":
                     data = data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
