@@ -1,91 +1,347 @@
 #!/bin/zsh
 set -euo pipefail
 
-APP_BUNDLE="/Applications/ChatGPT.app"
-APP_BIN="$APP_BUNDLE/Contents/MacOS/ChatGPT"
-FLCLASH_APP="/Applications/FlClash.app"
-HTTP_PROXY_URL="${HTTP_PROXY_URL:-http://127.0.0.1:7890}"
-NO_PROXY_HOSTS="${NO_PROXY_HOSTS:-localhost,127.0.0.1,api.github.com}"
-LOG_DIR="/Users/nonpoor/daily/codex-proxy-launcher/logs"
-LOG_FILE="$LOG_DIR/codex-proxy.log"
+SCRIPT_DIR="${0:A:h}"
+PROJECT_ROOT="${SCRIPT_DIR:h:h:h}"
+ROUTE_LIB="$PROJECT_ROOT/lib/proxy-route.zsh"
+APP_BUNDLE="${CODEX_PROXY_APP_BUNDLE:-/Applications/ChatGPT.app}"
+APP_BIN="${CODEX_PROXY_APP_BIN:-$APP_BUNDLE/Contents/MacOS/ChatGPT}"
+OSASCRIPT_BIN="${CODEX_PROXY_OSASCRIPT_BIN:-/usr/bin/osascript}"
+OPEN_BIN="${CODEX_PROXY_OPEN_BIN:-/usr/bin/open}"
+NO_PROXY_HOSTS="${NO_PROXY_HOSTS:-localhost,127.0.0.1,::1}"
+LOG_DIR="${CODEX_PROXY_LOG_DIR:-$PROJECT_ROOT/logs}"
+LOG_FILE="$LOG_DIR/launcher.log"
+STATE_FILE="${CODEX_PROXY_STATE_FILE:-$LOG_DIR/current-session.state}"
+LOG_MAX_BYTES="${CODEX_PROXY_LOG_MAX_BYTES:-1048576}"
+LOG_KEEP=3
+WAIT_ATTEMPTS="${CODEX_PROXY_WAIT_ATTEMPTS:-30}"
+WAIT_DELAY="${CODEX_PROXY_WAIT_DELAY:-0.5}"
 
-mkdir -p "$LOG_DIR"
+if [[ ! -r "$ROUTE_LIB" ]]; then
+  "$OSASCRIPT_BIN" - "$ROUTE_LIB" <<'APPLESCRIPT' >/dev/null 2>&1 || true
+on run argv
+  display dialog "缺少代理路由模块：" & item 1 of argv buttons {"好"} default button "好" with title "Codex Proxy"
+end run
+APPLESCRIPT
+  exit 1
+fi
+source "$ROUTE_LIB"
+
+[[ "$LOG_MAX_BYTES" == <-> && "$LOG_MAX_BYTES" -gt 0 ]] || LOG_MAX_BYTES=1048576
+[[ "$WAIT_ATTEMPTS" == <-> && "$WAIT_ATTEMPTS" -gt 0 ]] || WAIT_ATTEMPTS=30
+/bin/mkdir -p "$LOG_DIR"
+
+rotate_log() {
+  local log_size old_file new_file
+  local -i index
+
+  [[ -f "$LOG_FILE" ]] || return 0
+  log_size="$(/usr/bin/wc -c < "$LOG_FILE" | /usr/bin/tr -d '[:space:]')"
+  [[ "$log_size" == <-> ]] || return 0
+  (( log_size >= LOG_MAX_BYTES )) || return 0
+
+  for (( index = LOG_KEEP; index >= 2; index-- )); do
+    old_file="$LOG_FILE.$(( index - 1 ))"
+    new_file="$LOG_FILE.$index"
+    [[ -f "$old_file" ]] && /bin/mv -f "$old_file" "$new_file"
+  done
+  /bin/mv -f "$LOG_FILE" "$LOG_FILE.1"
+}
+
+sanitize_log_field() {
+  local value="${1:-}"
+  value="${value//$'\n'/ }"
+  value="${value//$'\r'/ }"
+  value="${value//$'\t'/ }"
+  print -r -- "$value"
+}
+
+log_event() {
+  local event="$(sanitize_log_field "${1:-unknown}")"
+  shift || true
+  local details="$(sanitize_log_field "$*")"
+  print -r -- "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] event=$event $details" >> "$LOG_FILE"
+}
 
 notify() {
-  /usr/bin/osascript -e "display dialog \"$1\" buttons {\"OK\"} default button \"OK\" with title \"Codex Proxy\""
+  local message="$1"
+  "$OSASCRIPT_BIN" - "$message" <<'APPLESCRIPT' >/dev/null 2>&1 || true
+on run argv
+  display dialog item 1 of argv buttons {"好"} default button "好" with title "Codex Proxy"
+end run
+APPLESCRIPT
+}
+
+show_launch_notification() {
+  local route_count="$1"
+  local route_summary="$2"
+  local subtitle="启动前连通性已验证"
+
+  if (( route_count > 1 )); then
+    subtitle="已验证 ${route_count} 条可用路线"
+  fi
+
+  "$OSASCRIPT_BIN" -l JavaScript - "$subtitle" "$route_summary" <<'JAVASCRIPT' >/dev/null 2>&1 || true
+function run(argv) {
+  const app = Application.currentApplication();
+  app.includeStandardAdditions = true;
+  app.displayNotification(`本次路线：${argv[1]}`, {
+    withTitle: "Codex Proxy 正在启动 ChatGPT",
+    subtitle: argv[0]
+  });
+}
+JAVASCRIPT
+}
+
+write_session_state() {
+  local pid="$1"
+  local route_summary="$2"
+  local launched_at temp_file
+
+  launched_at="$(/bin/date '+%Y-%m-%d %H:%M:%S')"
+  temp_file="${STATE_FILE}.tmp.$$"
+  {
+    print -r -- "pid"$'\t'"$(sanitize_log_field "$pid")"
+    print -r -- "launched_at"$'\t'"$(sanitize_log_field "$launched_at")"
+    print -r -- "route"$'\t'"$(sanitize_log_field "$route_summary")"
+  } >| "$temp_file" || return 1
+  /bin/mv -f "$temp_file" "$STATE_FILE"
+}
+
+typeset SESSION_PID=""
+typeset SESSION_LAUNCHED_AT=""
+typeset SESSION_ROUTE=""
+
+read_session_state() {
+  local key value
+
+  SESSION_PID=""
+  SESSION_LAUNCHED_AT=""
+  SESSION_ROUTE=""
+  [[ -r "$STATE_FILE" ]] || return 1
+
+  while IFS=$'\t' read -r key value; do
+    case "$key" in
+      pid) SESSION_PID="$value" ;;
+      launched_at) SESSION_LAUNCHED_AT="$value" ;;
+      route) SESSION_ROUTE="$value" ;;
+    esac
+  done < "$STATE_FILE"
+
+  [[ "$SESSION_PID" == <-> && -n "$SESSION_LAUNCHED_AT" && -n "$SESSION_ROUTE" ]]
+}
+
+show_existing_status() {
+  local app_pid="$1"
+  local message
+
+  if read_session_state && [[ "$SESSION_PID" == "$app_pid" ]]; then
+    message="ChatGPT 正在运行（PID：$app_pid）。"
+    message+=$'\n\n'"启动器记录的启动时间：$SESSION_LAUNCHED_AT"
+    message+=$'\n'"本次路线：$SESSION_ROUTE"
+    message+=$'\n\n'"该路线只在启动前通过连通性验证；启动器不持续监控网络。"
+  else
+    message="ChatGPT 正在运行（PID：$app_pid），但启动器无法确认该进程的启动路线。"
+    message+=$'\n\n'"它可能不是由 Codex Proxy 启动，或记录的进程已经变化。启动器不会关闭或重启当前 ChatGPT。"
+  fi
+  notify "$message"
+}
+
+choose_from_list() {
+  local title="$1"
+  local prompt="$2"
+  shift 2
+  "$OSASCRIPT_BIN" - "$title" "$prompt" "$@" <<'APPLESCRIPT' 2>/dev/null || true
+on run argv
+  set dialogTitle to item 1 of argv
+  set dialogPrompt to item 2 of argv
+  set choiceItems to items 3 thru -1 of argv
+  set picked to choose from list choiceItems with title dialogTitle with prompt dialogPrompt OK button name "确定" cancel button name "取消"
+  if picked is false then return ""
+  return item 1 of picked
+end run
+APPLESCRIPT
 }
 
 find_app_pid() {
-  # Process existence is the source of truth; LaunchServices state can lag behind app shutdown.
   /bin/ps -axo pid=,command= 2>/dev/null \
     | /usr/bin/awk -v app_bin="$APP_BIN" '$2 == app_bin && !pid { pid = $1 } END { if (pid) print pid }' \
     || true
 }
 
-proxy_ready() {
-  /usr/bin/nc -z 127.0.0.1 7890 >/dev/null 2>&1
+typeset -a ROUTE_MODES ROUTE_SOURCES ROUTE_URLS
+typeset -i ROUTE_LOAD_STATUS=0
+
+load_routes() {
+  local output mode source url
+
+  ROUTE_MODES=()
+  ROUTE_SOURCES=()
+  ROUTE_URLS=()
+  ROUTE_LOAD_STATUS=0
+  output="$(proxy_route_resolve)" || ROUTE_LOAD_STATUS=$?
+  (( ROUTE_LOAD_STATUS == 0 )) || return "$ROUTE_LOAD_STATUS"
+
+  while IFS=$'\t' read -r mode source url; do
+    [[ -n "$mode" && -n "$source" && -n "$url" ]] || continue
+    ROUTE_MODES+=("$mode")
+    ROUTE_SOURCES+=("$source")
+    ROUTE_URLS+=("$url")
+  done <<< "$output"
+
+  (( ${#ROUTE_MODES} > 0 )) || {
+    ROUTE_LOAD_STATUS=1
+    return 1
+  }
 }
 
-wait_for_proxy() {
-  for _ in {1..30}; do
-    proxy_ready && return 0
-    /bin/sleep 0.5
+wait_for_routes() {
+  local -i attempt
+  for (( attempt = 1; attempt <= WAIT_ATTEMPTS; attempt++ )); do
+    if load_routes; then
+      return 0
+    fi
+    (( ROUTE_LOAD_STATUS == 2 )) && return 2
+    (( attempt < WAIT_ATTEMPTS )) && /bin/sleep "$WAIT_DELAY"
   done
   return 1
 }
 
+typeset SELECTED_MODE=""
+typeset SELECTED_SOURCE=""
+typeset SELECTED_URL=""
+
+select_route() {
+  local -a labels
+  local selected label display_url
+  local -i index
+
+  if (( ${#ROUTE_MODES} == 1 )); then
+    SELECTED_MODE="$ROUTE_MODES[1]"
+    SELECTED_SOURCE="$ROUTE_SOURCES[1]"
+    SELECTED_URL="$ROUTE_URLS[1]"
+    return 0
+  fi
+
+  labels=()
+  for (( index = 1; index <= ${#ROUTE_MODES}; index++ )); do
+    display_url="$(proxy_route_redact_url "$ROUTE_URLS[$index]")"
+    labels+=("$ROUTE_SOURCES[$index] — $display_url")
+  done
+  selected="$(choose_from_list \
+    "Codex Proxy" \
+    "检测到多条可用代理路线，请选择本次启动使用的路线。" \
+    "${labels[@]}")"
+  [[ -n "$selected" ]] || return 1
+
+  for (( index = 1; index <= ${#labels}; index++ )); do
+    label="$labels[$index]"
+    if [[ "$selected" == "$label" ]]; then
+      SELECTED_MODE="$ROUTE_MODES[$index]"
+      SELECTED_SOURCE="$ROUTE_SOURCES[$index]"
+      SELECTED_URL="$ROUTE_URLS[$index]"
+      return 0
+    fi
+  done
+  return 1
+}
+
+open_proxy_app() {
+  local bundle_id="$1"
+  local app_name="$2"
+
+  if "$OPEN_BIN" -b "$bundle_id" >/dev/null 2>&1; then
+    log_event "proxy_app_opened" "app=$app_name"
+    return 0
+  fi
+  log_event "proxy_app_open_failed" "app=$app_name"
+  notify "无法打开 $app_name。请确认应用已经安装，然后重新检测。"
+  return 1
+}
+
+launch_chatgpt() {
+  # Sandboxed environments may deny Zsh's default background renice. The
+  # launcher does not need altered process priority.
+  unsetopt BG_NICE
+  /usr/bin/nohup "$APP_BIN" --disable-quic >/dev/null 2>&1 &!
+  LAUNCHED_PID=$!
+}
+
+rotate_log
+
 if [[ ! -x "$APP_BIN" ]]; then
+  log_event "app_missing" "app_bin=$(sanitize_log_field "$APP_BIN")"
   notify "找不到 ChatGPT 主程序：$APP_BIN"
   exit 1
 fi
 
-while ! proxy_ready; do
-  choice="$(/usr/bin/osascript -e 'button returned of (display dialog "本地代理 127.0.0.1:7890 没有启动。请先打开 FlClash，等代理端口可用后再启动 ChatGPT。" buttons {"取消", "重试", "打开 FlClash"} default button "打开 FlClash" cancel button "取消" with title "Codex Proxy")' 2>/dev/null || true)"
+APP_PID="$(find_app_pid)"
+if [[ -n "$APP_PID" ]]; then
+  log_event "already_running" "pid=$APP_PID"
+  show_existing_status "$APP_PID"
+  exit 0
+fi
+
+while true; do
+  if load_routes; then
+    if ! select_route; then
+      log_event "route_selection_cancelled"
+      exit 0
+    fi
+    break
+  fi
+
+  if (( ROUTE_LOAD_STATUS == 2 )); then
+    log_event "override_invalid"
+    notify "HTTP_PROXY_URL 已设置，但格式无效或当前无法连通。启动器不会改用其他路线，也不会启动 ChatGPT。"
+    exit 1
+  fi
+
+  choice="$(choose_from_list \
+    "Codex Proxy" \
+    "没有检测到可访问 OpenAI 的系统/TUN 或本地 HTTP 代理。ChatGPT 尚未启动，请先打开代理软件或重新检测。" \
+    "打开 Shadowrocket" "打开 FlClash" "重新检测")"
   case "$choice" in
-    "打开 FlClash")
-      if [[ -d "$FLCLASH_APP" ]]; then
-        /usr/bin/open -a "$FLCLASH_APP"
-      else
-        notify "找不到 FlClash：$FLCLASH_APP"
-        exit 1
+    "打开 Shadowrocket")
+      if open_proxy_app "com.liguangming.Shadowrocket" "Shadowrocket"; then
+        if ! wait_for_routes; then
+          notify "已打开 Shadowrocket，但仍未检测到可用路线。请检查代理状态或节点后重试。"
+        fi
       fi
-      wait_for_proxy || true
       ;;
-    "重试")
-      wait_for_proxy || true
+    "打开 FlClash")
+      if open_proxy_app "com.follow.clash" "FlClash"; then
+        if ! wait_for_routes; then
+          notify "已打开 FlClash，但仍未检测到可用路线。请检查代理状态或节点后重试。"
+        fi
+      fi
+      ;;
+    "重新检测")
+      log_event "route_retry"
       ;;
     *)
+      log_event "launch_cancelled" "reason=no_route"
       exit 0
       ;;
   esac
 done
 
-APP_PID="$(find_app_pid)"
-if [[ -n "$APP_PID" ]]; then
-  notify "ChatGPT 已经在运行（PID：$APP_PID）。为了避免中断当前会话，启动器不会关闭现有 ChatGPT。请先手动退出 ChatGPT，再双击 Codex Proxy.app 启动。"
-  exit 0
+if ! proxy_route_apply_environment "$SELECTED_MODE" "$SELECTED_URL" "$NO_PROXY_HOSTS"; then
+  log_event "route_apply_failed" "mode=$(sanitize_log_field "$SELECTED_MODE")"
+  notify "无法应用已选择的代理路线，ChatGPT 尚未启动。"
+  exit 1
 fi
 
-# Current Codex resolves wss:// destinations through HTTPS_PROXY. WS_PROXY and
-# WSS_PROXY are not read by its WebSocket dialer. Clear inherited fallback
-# variables so the unified app does not split traffic between HTTP and SOCKS.
-unset WS_PROXY WSS_PROXY ALL_PROXY ws_proxy wss_proxy all_proxy
+DISPLAY_URL="$(proxy_route_redact_url "$SELECTED_URL")"
+ROUTE_SUMMARY="$(proxy_route_describe "$SELECTED_MODE" "$SELECTED_SOURCE" "$SELECTED_URL")"
+log_event "launch" \
+  "mode=$(sanitize_log_field "$SELECTED_MODE") source=$(sanitize_log_field "$SELECTED_SOURCE") url=$(sanitize_log_field "$DISPLAY_URL") args=--disable-quic"
 
-export HTTP_PROXY="$HTTP_PROXY_URL"
-export HTTPS_PROXY="$HTTP_PROXY_URL"
-export http_proxy="$HTTP_PROXY_URL"
-export https_proxy="$HTTP_PROXY_URL"
-export NO_PROXY="$NO_PROXY_HOSTS"
-export no_proxy="$NO_PROXY"
-
-{
-  echo "[$(/bin/date '+%Y-%m-%d %H:%M:%S')] launching ChatGPT (Chat + Work + Codex)"
-  echo "APP_BUNDLE=$APP_BUNDLE"
-  echo "APP_BIN=$APP_BIN"
-  echo "HTTP_PROXY=$HTTP_PROXY"
-  echo "HTTPS_PROXY=$HTTPS_PROXY"
-  echo "NO_PROXY=$NO_PROXY"
-  echo "ARGS=--disable-quic"
-} >> "$LOG_FILE"
-
-/usr/bin/nohup "$APP_BIN" --disable-quic >> "$LOG_FILE" 2>&1 &
+launch_chatgpt
+log_event "spawned" "pid=$LAUNCHED_PID"
+if write_session_state "$LAUNCHED_PID" "$ROUTE_SUMMARY"; then
+  log_event "session_state_written" "pid=$LAUNCHED_PID"
+else
+  log_event "session_state_write_failed" "pid=$LAUNCHED_PID"
+fi
+show_launch_notification "${#ROUTE_MODES}" "$ROUTE_SUMMARY"
