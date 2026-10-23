@@ -178,13 +178,14 @@ function Start-ProxyDesktopProcess([string]$AppPath) {
 
     $fakeDoctor = Join-Path $testDir 'fake-doctor.ps1'
     Set-Content $fakeDoctor @'
-Write-Output '{"checks":{"network.provider_reachability":{"status":"ok"},"network.websocket_reachability":{"status":"ok","details":{"handshake result":"HTTP 101 Switching Protocols"}}}}'
+Write-Output '{"checks":{"network.provider_reachability":{"status":"ok","summary":"provider reachable"},"network.websocket_reachability":{"status":"ok","details":{"handshake result":"HTTP 101 Switching Protocols"}}}}'
 exit 1
 '@
     $output = & $hostExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File `
         (Join-Path $entryDir 'Diagnose-CodexNetwork.ps1') -CodexPath $fakeDoctor 2>&1
     Assert-Equal 0 $LASTEXITCODE 'healthy network wins over unrelated doctor exit'
     Assert-True (($output -join "`n") -match 'HTTP 101') 'entry prints handshake'
+    Assert-True (($output -join "`n") -match 'provider reachable') 'entry prints diagnostic summary'
     Set-Content $fakeDoctor "Write-Output '{}'"
     $output = & $hostExe -NoLogo -NoProfile -ExecutionPolicy Bypass -File `
         (Join-Path $entryDir 'Diagnose-CodexNetwork.ps1') -CodexPath $fakeDoctor 2>&1

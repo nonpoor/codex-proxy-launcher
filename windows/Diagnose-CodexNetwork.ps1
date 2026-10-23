@@ -26,6 +26,9 @@ try {
     }
     $result = Get-CodexNetworkResult $report
     Write-Host ('HTTP: {0}; WebSocket: {1}' -f $result.Http.status, $result.WebSocket.status)
+    foreach ($check in @($result.Http, $result.WebSocket)) {
+        if ($check.PSObject.Properties['summary']) { Write-Host $check.summary }
+    }
     if ($result.WebSocket.PSObject.Properties['details']) {
         $handshake = $result.WebSocket.details.PSObject.Properties['handshake result']
         if ($handshake) { Write-Host ('Handshake: {0}' -f $handshake.Value) }
