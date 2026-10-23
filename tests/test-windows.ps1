@@ -156,6 +156,7 @@ try {
     $sourceRoot = [IO.Path]::GetFullPath("$PSScriptRoot/..")
     $installed = Install-ProxyFiles $sourceRoot $installDir
     Assert-True (Test-Path (Join-Path $installed 'windows/Start-CodexProxy.cmd')) 'install desktop entry'
+    Assert-True (Test-Path (Join-Path $installed 'windows/CodexProxy.ico')) 'install native icon'
     Assert-True (Test-Path (Join-Path $installed '.codex-proxy-launcher.install')) 'managed installation marker'
     Assert-True (-not (Test-Path (Join-Path $installed 'logs'))) 'do not copy source logs'
     Set-Content (Join-Path $installed 'keep-user-file.txt') 'keep'
@@ -168,6 +169,13 @@ try {
     Assert-Equal 'keep' (Get-Content (Join-Path $unmanaged 'keep.txt')) 'unmanaged files unchanged'
     Assert-Throws { Install-ProxyFiles $unmanaged (Join-Path $testDir 'incomplete') } 'incomplete download rejected'
     if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) {
+        Add-Type -AssemblyName System.Drawing
+        $nativeIcon = New-Object System.Drawing.Icon((Join-Path $installed 'windows/CodexProxy.ico'))
+        try {
+            Assert-True ($nativeIcon.Width -gt 0 -and $nativeIcon.Height -gt 0) 'Windows can decode installed ICO'
+        } finally {
+            $nativeIcon.Dispose()
+        }
         $desktop = Join-Path $testDir 'fake desktop'
         $startMenu = Join-Path $testDir 'fake start menu'
         New-ProxyShortcuts $installed $desktop $startMenu
@@ -176,8 +184,17 @@ try {
         $com = New-Object -ComObject WScript.Shell
         $link = $com.CreateShortcut((Join-Path $desktop 'Codex Proxy.lnk'))
         Assert-Equal (Join-Path $installed 'windows/Start-CodexProxy.cmd') $link.TargetPath 'shortcut target'
+        $expectedIcon = (Join-Path $installed 'windows/CodexProxy.ico') + ',0'
+        Assert-Equal $expectedIcon ($link.IconLocation.Replace('"', '')) 'shortcut uses installed icon'
+        # Simulate the old v1.0.0 shortcut and verify reinstall updates its icon.
+        $link.IconLocation = "$env:SystemRoot\System32\shell32.dll,0"
+        $link.Save()
         New-ProxyShortcuts $installed $desktop $startMenu
         Assert-True (Test-Path (Join-Path $desktop 'Codex Proxy.lnk')) 'shortcut reinstall is safe'
+        $updated = $com.CreateShortcut((Join-Path $desktop 'Codex Proxy.lnk'))
+        Assert-Equal $expectedIcon ($updated.IconLocation.Replace('"', '')) 'upgrade replaces old default icon'
+        $diagnosis = $com.CreateShortcut((Join-Path $startMenu 'Codex Network Diagnosis.lnk'))
+        Assert-Equal $expectedIcon ($diagnosis.IconLocation.Replace('"', '')) 'diagnosis shortcut uses native icon'
     }
 
     # Run entry scripts in a separate PowerShell process with a fake route and

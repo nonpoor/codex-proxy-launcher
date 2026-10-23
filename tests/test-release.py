@@ -5,6 +5,7 @@ import hashlib
 from pathlib import Path
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
@@ -38,14 +39,27 @@ def main():
                     destination = checkout / relative
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     data = zf.read(entry)
-                    if destination.suffix != '.icns':
+                    if destination.suffix not in {'.icns', '.ico'}:
                         data = data.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')
                     destination.write_bytes(data)
                     destination.chmod(0o644)
                 if platform == 'windows':
                     assert {'Install-Windows.cmd', 'windows/Install-CodexProxy.ps1',
                             'windows/InstallSupport.ps1', 'windows/ProxyRoute.ps1',
-                            'windows/Start-CodexProxy.cmd'} <= names
+                            'windows/Start-CodexProxy.cmd', 'windows/CodexProxy.ico'} <= names
+                    icon = zf.read(folder + '/windows/CodexProxy.ico')
+                    reserved, kind, count = struct.unpack_from('<HHH', icon)
+                    assert (reserved, kind, count) == (0, 1, 5)
+                    sizes = set()
+                    for i in range(count):
+                        width, height, _, _, planes, depth, length, offset = struct.unpack_from('<BBBBHHII', icon, 6 + 16*i)
+                        width, height = width or 256, height or 256
+                        assert planes == 1 and depth == 32 and offset + length <= len(icon)
+                        frame = icon[offset:offset+length]
+                        assert frame.startswith(b'\x89PNG\r\n\x1a\n')
+                        assert struct.unpack('>II', frame[16:24]) == (width, height)
+                        sizes.add(width)
+                    assert sizes == {16, 32, 64, 128, 256}
                     for name in zf.namelist():
                         if name.endswith('.cmd'):
                             assert b'\n' not in zf.read(name).replace(b'\r\n', b'')
@@ -84,6 +98,7 @@ def main():
         if result.returncode:
             raise RuntimeError(result.stdout + result.stderr)
         assert (installed / 'windows/Start-CodexProxy.cmd').is_file()
+        assert (installed / 'windows/CodexProxy.ico').is_file()
         assert (installed / '.codex-proxy-launcher.install').is_file()
         assert not (installed / 'logs').exists()
     print('Release ZIP validation and extracted Windows installer: OK')

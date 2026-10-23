@@ -21,4 +21,5 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 This license applies to this project's source code and documentation.
-Historical icon assets in assets/ and the bundled .icns are excluded; see NOTICE.md.
+Historical icon assets in assets/, the bundled .icns, and windows/CodexProxy.ico
+are excluded; see NOTICE.md.

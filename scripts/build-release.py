@@ -19,7 +19,7 @@ def build(version: str, output: Path) -> list[Path]:
     windows = common + [ROOT / "Install-Windows.cmd"] + [ROOT / 'windows' / name for name in (
         'ProxyRoute.ps1', 'Start-CodexProxy.ps1', 'Start-CodexProxy.cmd',
         'Diagnose-CodexNetwork.ps1', 'Diagnose-CodexNetwork.cmd', 'Start-CodexCLI.ps1',
-        'InstallSupport.ps1', 'Install-CodexProxy.ps1')]
+        'InstallSupport.ps1', 'Install-CodexProxy.ps1', 'CodexProxy.ico')]
     macos = common + [ROOT / "diagnose-codex-network.command", ROOT / "shell/proxy.zsh"]
     macos += [ROOT / 'lib' / name for name in ('proxy-route.zsh', 'codex-runtime.zsh')]
     macos += [ROOT / 'Codex Proxy.app/Contents' / name for name in (

@@ -15,6 +15,8 @@
 
 Windows 安装不需要管理员权限，会把启动器复制到 `%LOCALAPPDATA%\Programs\CodexProxyLauncher`，并在桌面和开始菜单创建启动、诊断两个快捷方式。应用位置无法自动识别时，会出现文件选择框；选择一次 `Codex.exe` 或 `ChatGPT.exe` 后即可记住。安装后不依赖下载时的解压目录。
 
+从 v1.0.0 升级时，下载新版 Windows ZIP，解压后再次运行 `Install-Windows.cmd` 即可。安装器会更新已有快捷方式，使用与 macOS 版相同图案的应用图标，并保留已记住的应用路径。若桌面仍显示旧图标，可按 F5 刷新。
+
 想从终端安装，也可以解压后在项目根目录运行：
 
 ```powershell
@@ -126,6 +128,8 @@ proxy_off
 ```
 
 `proxy_auto` 修改当前终端的代理变量，`proxy_off` 清除它们。`codex_auto` 在子 shell 中选择路线并运行 PATH 上的 `codex`，结束后不改变父终端环境。项目不会自动编辑 `~/.zshrc`；需要每次可用时，可自行把上述 `source` 改为项目的绝对路径并加入自己的 shell 配置。
+
+如果 `~/.zshrc` 原来已有同名函数，用这条 `source` 替换旧定义，不要同时维护两份。默认 `NO_PROXY` 只包含 `localhost,127.0.0.1,::1`，不会强制让 GitHub API 直连；需要其他绕过规则时，在调用 `proxy_auto` 前临时设置 `NO_PROXY_HOSTS`。
 
 ### Windows / PowerShell
 

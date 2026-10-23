@@ -15,7 +15,7 @@ TEST_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEST_DIR"' EXIT
 cat > "$TEST_DIR/routes.zsh" <<'FAKE'
 proxy_route_resolve() { print -r -- $'explicit\ttest\thttp://localhost:4567'; }
-proxy_route_apply_shell_environment() { export HTTPS_PROXY="$2"; }
+proxy_route_apply_shell_environment() { export HTTPS_PROXY="$2"; export NO_PROXY="$3"; }
 proxy_route_describe() { print -r -- "$2"; }
 proxy_route_clear_environment() { unset HTTPS_PROXY; }
 FAKE
@@ -23,6 +23,11 @@ CODEX_PROXY_ROUTE_LIB="$TEST_DIR/routes.zsh"
 HTTPS_PROXY=http://old.invalid:9999
 proxy_auto >/dev/null
 [[ "$HTTPS_PROXY" == http://localhost:4567 ]]
+[[ "$NO_PROXY" == localhost,127.0.0.1,::1 ]]
+export NO_PROXY_HOSTS='localhost,custom.example'
+proxy_auto >/dev/null
+[[ "$NO_PROXY" == localhost,custom.example ]]
+unset NO_PROXY_HOSTS
 proxy_off >/dev/null
 [[ -z "${HTTPS_PROXY:-}" ]]
 mkdir -p "$TEST_DIR/bin"

@@ -5,7 +5,7 @@ function Install-ProxyFiles([string]$SourceRoot, [string]$InstallDirectory) {
     $destination = [IO.Path]::GetFullPath($InstallDirectory).TrimEnd([IO.Path]::DirectorySeparatorChar)
     $files = @('ProxyRoute.ps1', 'Start-CodexProxy.ps1', 'Start-CodexProxy.cmd',
         'Diagnose-CodexNetwork.ps1', 'Diagnose-CodexNetwork.cmd', 'Start-CodexCLI.ps1',
-        'InstallSupport.ps1', 'Install-CodexProxy.ps1')
+        'InstallSupport.ps1', 'Install-CodexProxy.ps1', 'CodexProxy.ico')
     foreach ($file in $files) {
         if (-not (Test-Path -LiteralPath (Join-Path (Join-Path $source 'windows') $file) -PathType Leaf)) {
             throw 'The download is incomplete. Extract the entire release ZIP before installing.'
@@ -44,6 +44,10 @@ function Install-ProxyFiles([string]$SourceRoot, [string]$InstallDirectory) {
 function New-ProxyShortcuts([string]$InstallDirectory, [string]$DesktopDirectory,
     [string]$StartMenuDirectory) {
     $shell = New-Object -ComObject WScript.Shell
+    $iconPath = Join-Path (Join-Path $InstallDirectory 'windows') 'CodexProxy.ico'
+    if (-not (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
+        throw 'The installed application icon is missing. Reinstall from the complete release ZIP.'
+    }
     $entries = @{
         'Codex Proxy.lnk' = 'Start-CodexProxy.cmd'
         'Codex Network Diagnosis.lnk' = 'Diagnose-CodexNetwork.cmd'
@@ -61,6 +65,7 @@ function New-ProxyShortcuts([string]$InstallDirectory, [string]$DesktopDirectory
             $link.TargetPath = $target
             $link.WorkingDirectory = $InstallDirectory
             $link.Description = 'Codex Proxy Launcher'
+            $link.IconLocation = "$iconPath,0"
             $link.Save()
         }
     }
