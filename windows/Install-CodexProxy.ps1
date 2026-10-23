@@ -1,12 +1,19 @@
 [CmdletBinding()]
 param(
-    [string]$SourceRoot = (Split-Path $PSScriptRoot -Parent),
-    [string]$InstallDirectory = (Join-Path $env:LOCALAPPDATA 'Programs\CodexProxyLauncher'),
+    [string]$SourceRoot = '',
+    [string]$InstallDirectory = '',
     [switch]$NoShortcuts
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\InstallSupport.ps1"
 try {
+    # Windows PowerShell 5.1 can evaluate parameter defaults before it sets
+    # PSScriptRoot for a -File invocation. Resolve defaults in the script body.
+    if (-not $SourceRoot) { $SourceRoot = Split-Path $PSScriptRoot -Parent }
+    if (-not $InstallDirectory) {
+        if (-not $env:LOCALAPPDATA) { throw 'A user-local application directory is required.' }
+        $InstallDirectory = Join-Path $env:LOCALAPPDATA 'Programs\CodexProxyLauncher'
+    }
     $installed = Install-ProxyFiles $SourceRoot $InstallDirectory
     if (-not $NoShortcuts) {
         $desktop = [Environment]::GetFolderPath('DesktopDirectory')
